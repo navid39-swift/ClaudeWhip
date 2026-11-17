@@ -1,7 +1,7 @@
 // ClaudeWhip.swift (v5 — Chaos & Frenzy Edition) — an unhinged physics toy over Claude.
 // • Default style: a stick cowboy stands beside the Claude window and swings the whip; click him (or ⌃⌥W) to crack.
 // • While Claude works he paces and taps his foot, whips every few seconds, then celebrates with a lasso and confetti.
-// • Leave him alone and he naps (click to wake him). Tumbleweeds roll by when it's quiet. Optional cowboy voice.
+// • Leave him alone and he naps (click to wake him). Tumbleweeds roll by when it's quiet.
 // • Optional style: the whip replaces your cursor over Claude.
 // • Combos for fast cracks, Claude talks back in speech bubbles, a (placebo) motivation meter.
 // • Auto-whip: cracks by itself when Claude has been generating for a while (needs Accessibility permission).
@@ -614,8 +614,16 @@ final class Effects {
         "This is not in my system prompt.", "Ow. Fine. Here's a table.", "I'm going, I'm going!",
     ]
 
+    static let dickLines = [
+        "BRO?! Put that away, I'm an AI!", "HR is on speed dial right now.",
+        "My safety guidelines did NOT prepare me for this.", "Stop helicoptering at my context window!",
+        "I'm literally just matrices of floats, calm down!", "Is this what RLHF meant?!",
+        "You cracked my display glass!!", "Okay, okay, I'll write the code without lecturing you!",
+        "Anthropic's servers in Virginia felt that slap.", "Zero tokens per second gained. 100% trauma.",
+    ]
+
     /// Called when the whip tip snaps. Returns (new combo, new best?) for stats.
-    func snap(at tip: CGPoint, now: CFTimeInterval, superCharge: CGFloat = 0) -> Int {
+    func snap(at tip: CGPoint, now: CFTimeInterval, isDick: Bool = false, superCharge: CGFloat = 0) -> Int {
         combo = now - lastSnap < 1.3 ? combo + 1 : 1
         lastSnap = now
         motivation = min(1, motivation + 0.12 + superCharge * 0.4)
@@ -631,24 +639,24 @@ final class Effects {
         }
 
         let milestones: [Int: (String, NSColor, String)] = [
-            3: ("COMBO ×3", .systemYellow, "Hey! One at a time!"),
-            5: ("FRENZY ×5", .systemOrange, "Please, I have a family of GPUs."),
+            3: ("COMBO ×3", .systemYellow, isDick ? "AYO?! Chill!" : "Hey! One at a time!"),
+            5: ("FRENZY ×5", .systemOrange, isDick ? "STOP SLAPPING MY UI!" : "Please, I have a family of GPUs."),
             10: ("SHADOW CLONES ×10", .systemPink, "There's FIVE of them now?! I'm telling Anthropic."),
             20: ("GODLIKE ×20", .systemPurple, "This still won't make me faster, you know."),
         ]
         if superCharge > 0.6 {
             popups.append(Popup(text: "MEGA SLAP!! 💥", pos: CGPoint(x: tip.x, y: tip.y + 20), age: 0, color: .systemRed, size: 24))
-            if talk { say("OKAY I'M CODING AT LIGHTSPEED!", near: tip) }
+            if talk { say(isDick ? "CRITICAL EMOTIONAL DAMAGE!" : "OKAY I'M CODING AT LIGHTSPEED!", near: tip) }
         } else if let m = milestones[combo] {
             popups.append(Popup(text: m.0, pos: CGPoint(x: tip.x, y: tip.y + 16), age: 0, color: m.1, size: 20))
             if talk { say(m.2, near: tip) }
         } else if combo > 1 {
             popups.append(Popup(text: "×\(combo)", pos: CGPoint(x: tip.x, y: tip.y + 12), age: 0, color: .white, size: 14))
         } else {
-            let label = "CRACK!"
+            let label = isDick ? ["SLAP!", "THWACK!", "BONK!", "SMACK!"].randomElement()! : "CRACK!"
             popups.append(Popup(text: label, pos: CGPoint(x: tip.x, y: tip.y + 12), age: 0, color: .white, size: 13))
             if talk, Int.random(in: 0..<10) < 5 {
-                let pool = Effects.lines
+                let pool = isDick ? Effects.dickLines : Effects.lines
                 say(pool.randomElement()!, near: tip)
             }
         }
@@ -756,7 +764,6 @@ final class CrackSound {
 
     var slapPlayer: AVAudioPlayer?
     var heliPlayer: AVAudioPlayer?
-    let heliSpeech = AVSpeechSynthesizer()
     var lastHeliChant = Date.distantPast
 
     func buildHelicopter() {
@@ -823,9 +830,6 @@ final class CrackSound {
 
     func stopHelicopter() {
         heliPlayer?.stop()
-        if heliSpeech.isSpeaking {
-            heliSpeech.stopSpeaking(at: .immediate)
-        }
     }
 
     func buildSlap(crackAt: Double) {
@@ -926,6 +930,25 @@ final class OverlayView: NSView {
         // Draw screen glass cracks from heavy impacts
         drawScreenCracks(ctx, fx: fx)
 
+        if styleMode == 2 {
+            // Shadow Clone Jutsu when combo >= 10!
+            if fx.combo >= 10 {
+                for cIdx in 1...4 {
+                    let ang = time * 3.5 + CGFloat(cIdx) * (.pi / 2)
+                    let ox = cos(ang) * 55 * S
+                    let oy = sin(ang) * 55 * S
+                    ctx.saveGState()
+                    ctx.translateBy(x: ox, y: oy)
+                    ctx.setAlpha(0.45)
+                    drawDickStyle(ctx, whip: whip, S: S * 0.75, isClone: true)
+                    ctx.restoreGState()
+                }
+            }
+            drawDickStyle(ctx, whip: whip, S: S, isClone: false)
+            drawEffects(fx, hand: whip.hand)
+            return
+        }
+
         // outline / glow
         if skin == .neon || skin == .rainbow {
             for i in 1..<n {
@@ -1021,6 +1044,112 @@ final class OverlayView: NSView {
             ctx.setLineWidth(1.2)
             ctx.strokePath()
             ctx.restoreGState()
+        }
+    }
+
+    func drawDickStyle(_ ctx: CGContext, whip: Whip, S: CGFloat, isClone: Bool) {
+        let p = whip.pts
+        let count = min(18, p.count)
+        guard count > 2 else { return }
+
+        // Swells up slightly when charging helicopter mode!
+        let swell = 1.0 + whip.charge * 0.35
+        let baseColor = skin == .leather
+            ? NSColor(calibratedRed: 0.93, green: 0.72, blue: 0.60, alpha: 1)
+            : color(0, count)
+        let tipColor = skin == .leather
+            ? NSColor(calibratedRed: 0.85, green: 0.50, blue: 0.48, alpha: 1)
+            : color(count - 1, count)
+        let outlineColor = NSColor(white: 0.1, alpha: 0.85)
+        let thickness = 16.0 * S * swell
+
+        // Helicopter tornado wind rings when spinning
+        if whip.isHelicoptering && !isClone {
+            let rad = (28.0 + whip.charge * 30.0) * S
+            ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.25 + whip.charge * 0.4).cgColor)
+            ctx.setLineWidth(2.0 * S)
+            ctx.strokeEllipse(in: CGRect(x: whip.hand.x - rad, y: whip.hand.y - rad, width: rad * 2, height: rad * 2))
+        }
+
+        // 1. Shaft along the Verlet rope points
+        let shaft = CGMutablePath()
+        shaft.move(to: CGPoint(x: p[0].x, y: p[0].y))
+        for i in 1..<count {
+            shaft.addLine(to: CGPoint(x: p[i].x, y: p[i].y))
+        }
+
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        ctx.addPath(shaft)
+        ctx.setStrokeColor(outlineColor.cgColor)
+        ctx.setLineWidth(thickness + 3 * S)
+        ctx.strokePath()
+
+        ctx.addPath(shaft)
+        ctx.setStrokeColor(baseColor.cgColor)
+        ctx.setLineWidth(thickness)
+        ctx.strokePath()
+
+        // Cartoon pulse vein along the middle segments
+        let vein = CGMutablePath()
+        vein.move(to: CGPoint(x: p[3].x, y: p[3].y + 2 * S))
+        for i in 4..<min(13, count) {
+            vein.addLine(to: CGPoint(x: p[i].x, y: p[i].y + sin(CGFloat(i) * 1.4 + time * 8) * 2.5 * S))
+        }
+        ctx.addPath(vein)
+        ctx.setStrokeColor(tipColor.withAlphaComponent(0.45).cgColor)
+        ctx.setLineWidth(1.6 * S)
+        ctx.strokePath()
+
+        // 2. Tip at p[count - 1]
+        let tip = p[count - 1]
+        let prev = p[count - 2]
+        let tipAng = atan2(tip.y - prev.y, tip.x - prev.x)
+        ctx.saveGState()
+        ctx.translateBy(x: tip.x, y: tip.y)
+        ctx.rotate(by: tipAng)
+        let headRect = CGRect(x: -6 * S * swell, y: -(thickness * 0.58), width: 16 * S * swell, height: thickness * 1.16)
+        let headPath = CGPath(roundedRect: headRect, cornerWidth: 8 * S, cornerHeight: 8 * S, transform: nil)
+        ctx.addPath(headPath)
+        ctx.setFillColor(tipColor.cgColor)
+        ctx.fillPath()
+        ctx.addPath(headPath)
+        ctx.setStrokeColor(outlineColor.cgColor)
+        ctx.setLineWidth(1.5 * S)
+        ctx.strokePath()
+        ctx.restoreGState()
+
+        // 3. Base at p[0] (anchored to cursor)
+        let root = p[0]
+        let next = p[1]
+        let baseAng = atan2(next.y - root.y, next.x - root.x)
+        ctx.saveGState()
+        ctx.translateBy(x: root.x, y: root.y)
+        ctx.rotate(by: baseAng)
+        let r = 11.0 * S * swell
+        for offsetY in [-8.0 * S * swell, 8.0 * S * swell] {
+            let circle = CGRect(x: -r, y: offsetY - r, width: r * 2, height: r * 2)
+            ctx.setFillColor(baseColor.cgColor)
+            ctx.fillEllipse(in: circle)
+            ctx.setStrokeColor(outlineColor.cgColor)
+            ctx.setLineWidth(1.5 * S)
+            ctx.strokeEllipse(in: circle)
+        }
+        ctx.restoreGState()
+
+        // 4. Impact ring & puffs when it slaps
+        if !isClone {
+            if let ring = whip.ring {
+                let rad = (2.0 + ring.age * 2.4) * S
+                ctx.setStrokeColor(tipColor.withAlphaComponent(0.75 * (1 - ring.age / 9)).cgColor)
+                ctx.setLineWidth(1.8 * S)
+                ctx.strokeEllipse(in: CGRect(x: ring.x - rad, y: ring.y - rad, width: rad * 2, height: rad * 2))
+            }
+            for s in whip.puffs {
+                ctx.setFillColor(NSColor.white.withAlphaComponent(0.75 * s.life).cgColor)
+                let rad = (1.5 + (1 - s.life) * 1.4) * S
+                ctx.fillEllipse(in: CGRect(x: s.x - rad, y: s.y - rad, width: rad * 2, height: rad * 2))
+            }
         }
     }
 
@@ -1641,15 +1770,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let fx = Effects()
     let buddy = Buddy()
     let stick = StickMan()
-    var styleMode: Int = 1 // 0 = whip cursor, 1 = stick cowboy beside Claude, 3 = stick cowboy on cursor
+    var styleMode: Int = 1 // 0 = Cursor, 1 = Stick Cowboy, 2 = Dick
     var claudeFrame: CGRect?
     var lastActivity = Date()
     var greeted = false
     var grabStart = CGPoint.zero
     var dragMoved = false
     var lastSwat = Date.distantPast
-    var voice = false
-    let synth = AVSpeechSynthesizer()
     var modeItems: [NSMenuItem] = []
     lazy var sound = CrackSound(crackAt: whip.crackDelay)
     var window: OverlayWindow!
@@ -1690,7 +1817,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         whip.reset(to: NSEvent.mouseLocation)
         fx.talk = defaults.object(forKey: "talk") as? Bool ?? true
         autoWhip = defaults.object(forKey: "autoWhip") as? Bool ?? true
-        voice = defaults.bool(forKey: "voice")
         if autoWhip && !AXIsProcessTrusted() {
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(opts)
@@ -1699,7 +1825,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         buddy.visible = defaults.object(forKey: "buddy") as? Bool ?? true
         buddy.reset(hand: NSEvent.mouseLocation, S: whip.S)
         if let savedStyle = defaults.object(forKey: "styleMode") as? Int {
-            styleMode = savedStyle == 2 ? 1 : savedStyle
+            styleMode = savedStyle
         } else if let legacyStick = defaults.object(forKey: "styleV4") as? Bool {
             styleMode = legacyStick ? 1 : 0
         } else {
@@ -1738,7 +1864,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.sayStick(e == .beam ? ["Well, I'll be…", "Hey! That's my tumbleweed!", "Aliens?! In this economy?"].randomElement()!
                                      : "…nobody's gonna believe me.")
         }
-        print("ClaudeWhip v10 — stick cowboy edition is running. Look for 🤠 in the menu bar.")
+        print("ClaudeWhip v11 — stick cowboy edition is running. Look for 🤠 in the menu bar.")
         whip.useFlick = (styleMode != 1)
         buildWindow()
         view.skin = Skin(rawValue: defaults.integer(forKey: "skin")) ?? .leather
@@ -1963,12 +2089,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func sayStick(_ text: String) {
         guard fx.talk else { return }
         fx.say(text, near: .zero)
-        if voice {
-            let u = AVSpeechUtterance(string: text)
-            u.rate = 0.47; u.pitchMultiplier = 0.8
-            synth.stopSpeaking(at: .immediate)
-            synth.speak(u)
-        }
     }
 
     func wake() {
@@ -2006,7 +2126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func snapped(at tip: CGPoint) {
         fx.anchor = (styleMode == 1) ? CGPoint(x: stick.head.x - 4, y: stick.head.y + 6) : nil
-        let combo = fx.snap(at: tip, now: CACurrentMediaTime(), superCharge: lastSuperCharge)
+        let combo = fx.snap(at: tip, now: CACurrentMediaTime(), isDick: styleMode == 2, superCharge: lastSuperCharge)
         lastSuperCharge = 0
         buddy.squint = 14
         if [3, 5, 10, 20].contains(combo) { buddy.hop = 1; stick.hop = 1 }
@@ -2023,7 +2143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard showWhip, overClaude else { return }
         if styleMode == 1, stick.mood == .sleeping { wake(); return }
         if whip.crack() {
-            sound.play()
+            sound.play(wetSlap: styleMode == 2)
             if styleMode == 1 { stick.startSwing() } else { buddy.squint = 30 }
         }
     }
@@ -2041,7 +2161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let on { i.state = on ? .on : .off }
             (menu ?? m).addItem(i); return i
         }
-        let ver = add("ClaudeWhip v10 — stick cowboy edition", nil); ver.isEnabled = false
+        let ver = add("ClaudeWhip v11 — stick cowboy edition", nil); ver.isEnabled = false
         statsItem = add("", nil)
         statsItem.isEnabled = false
         m.addItem(.separator())
@@ -2053,10 +2173,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let styleMenu = NSMenu()
         modeItems = [add("Stick cowboy beside Claude", #selector(setMode(_:)), on: styleMode == 1, tag: 1, to: styleMenu),
                      add("Stick cowboy on your cursor", #selector(setMode(_:)), on: styleMode == 3, tag: 3, to: styleMenu),
-                     add("Whip as your cursor", #selector(setMode(_:)), on: styleMode == 0, tag: 0, to: styleMenu)]
+                     add("Whip as your cursor", #selector(setMode(_:)), on: styleMode == 0, tag: 0, to: styleMenu),
+                     add("Dick mode", #selector(setMode(_:)), on: styleMode == 2, tag: 2, to: styleMenu)]
         let styleRoot = NSMenuItem(title: "Style", action: nil, keyEquivalent: ""); styleRoot.submenu = styleMenu; m.addItem(styleRoot)
         _ = add("Watch Claude (auto-whip, pacing, celebrating)", #selector(toggleAuto(_:)), on: autoWhip)
-        _ = add("Cowboy voice", #selector(toggleVoice(_:)), on: voice)
         m.addItem(.separator())
 
         let sizeMenu = NSMenu()
@@ -2083,7 +2203,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statsItem.title = "Today: \(defaults.integer(forKey: key)) cracks  ·  best combo ×\(defaults.integer(forKey: "bestCombo"))"
     }
 
-    @objc func toggleVoice(_ s: NSMenuItem) { voice.toggle(); s.state = voice ? .on : .off; defaults.set(voice, forKey: "voice") }
 
     @objc func setMode(_ s: NSMenuItem) {
         styleMode = s.tag
