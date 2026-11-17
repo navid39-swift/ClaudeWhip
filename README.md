@@ -22,7 +22,7 @@ A silly macOS toy for the Claude desktop app: a stick-figure cowboy who cracks a
 ## Build and run
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/ClaudeWhip.git
+git clone https://github.com/navid39-swift/ClaudeWhip.git
 cd ClaudeWhip
 swiftc -O ClaudeWhip.swift -o ClaudeWhip
 ./ClaudeWhip
