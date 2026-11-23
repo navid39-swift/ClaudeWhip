@@ -19,21 +19,30 @@ A silly macOS toy for the Claude desktop app: a stick-figure cowboy who cracks a
 - macOS with the Claude desktop app
 - Xcode Command Line Tools (`xcode-select --install`)
 
-## Build and run
+## Install (the easy way)
+
+1. Download **ClaudeWhip.zip** from the [latest release](https://github.com/navid39-swift/ClaudeWhip/releases/latest).
+2. Unzip it and drag **ClaudeWhip.app** into your **Applications** folder.
+3. Open it. A window appears: pick a style and press **Apply**. That's it.
+
+**First launch:** ClaudeWhip isn't from the App Store, so macOS blocks it the first time. Go to
+**System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to ClaudeWhip.
+
+Change settings any time from 🤠 → **Settings…** in the menu bar, or just open the app again.
+
+## Build it yourself
 
 ```bash
 git clone https://github.com/navid39-swift/ClaudeWhip.git
 cd ClaudeWhip
-swiftc -O ClaudeWhip.swift -o ClaudeWhip
-./ClaudeWhip
+./build-app.sh          # creates build/ClaudeWhip.app
+open build/ClaudeWhip.app
 ```
-
-Look for 🤠 in the menu bar. Click into Claude and the cowboy appears.
 
 ## Permissions
 
 To notice when Claude is generating, ClaudeWhip reads Claude's window through the macOS Accessibility API. Allow it under
-**System Settings → Privacy & Security → Accessibility** (for Terminal, or for the ClaudeWhip binary if you run it directly).
+**System Settings → Privacy & Security → Accessibility**: turn on **ClaudeWhip** (the **Grant Access…** button in the settings window takes you there).
 Without this permission everything else still works; he just won't know when Claude is busy.
 
 ## Controls
@@ -44,7 +53,7 @@ Without this permission everything else still works; he just won't know when Cla
 | Drag the cowboy | He dangles from your cursor; let go to throw him |
 | ⌃⌥W | Crack |
 | Hold right-click (cursor styles) | Helicopter spin |
-| 🤠 menu | Style, skin, size, voice, stats, quit |
+| 🤠 menu | Style, skin, size, stats, quit |
 
 ## Notes
 

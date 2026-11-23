@@ -14,6 +14,7 @@ import Cocoa
 import Carbon.HIToolbox
 import AVFoundation
 import ApplicationServices
+import ServiceManagement
 
 // MARK: - Cursor hiding from a background app
 
@@ -811,6 +812,7 @@ final class CrackSound {
     }
 
     func startHelicopter(chant: Bool = true) {
+        if soundsMuted { return }
         if let hp = heliPlayer {
             hp.rate = 0.85
             hp.volume = 0.9
@@ -868,6 +870,7 @@ final class CrackSound {
     }
 
     func play(wetSlap: Bool = false) {
+        if soundsMuted { return }
         if wetSlap, let slapPlayer {
             slapPlayer.currentTime = 0
             slapPlayer.play()
@@ -1804,6 +1807,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
+        DistributedNotificationCenter.default().addObserver(forName: showSettingsNote, object: nil, queue: .main) { _ in
+            AppDelegate.shared?.openSettings()
+        }
+        if !defaults.bool(forKey: "onboarded") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { AppDelegate.shared?.openSettings() }
+        }
         sound.buildSlap(crackAt: whip.crackDelay)
         sound.buildHelicopter()
         let cid = _CGSDefaultConnection()
@@ -1864,7 +1873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.sayStick(e == .beam ? ["Well, I'll be…", "Hey! That's my tumbleweed!", "Aliens?! In this economy?"].randomElement()!
                                      : "…nobody's gonna believe me.")
         }
-        print("ClaudeWhip v11 — stick cowboy edition is running. Look for 🤠 in the menu bar.")
+        print("ClaudeWhip v13 — stick cowboy edition is running. Look for 🤠 in the menu bar.")
         whip.useFlick = (styleMode != 1)
         buildWindow()
         view.skin = Skin(rawValue: defaults.integer(forKey: "skin")) ?? .leather
@@ -2161,8 +2170,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let on { i.state = on ? .on : .off }
             (menu ?? m).addItem(i); return i
         }
-        let ver = add("ClaudeWhip v11 — stick cowboy edition", nil); ver.isEnabled = false
+        let ver = add("ClaudeWhip v13 — stick cowboy edition", nil); ver.isEnabled = false
         statsItem = add("", nil)
+        let st = add("Settings…", #selector(openSettings)); st.keyEquivalent = ","
+        muteItem = add("Silent mode (no sounds)", #selector(toggleMute(_:)), on: soundsMuted)
+        m.addItem(.separator())
         statsItem.isEnabled = false
         m.addItem(.separator())
         _ = add("Crack  (⌃⌥W)  ·  Hold Right-Click = Helicopter 🚁", #selector(crackNow))
@@ -2242,6 +2254,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         defaults.set(s.tag, forKey: "size")
         sizeItems.forEach { $0.state = $0 == s ? .on : .off }
     }
+    let settings = SettingsWindow()
+    var muteItem: NSMenuItem?
+
+    @objc func toggleMute(_ s: NSMenuItem) { setMuted(!soundsMuted) }
+    func setMuted(_ on: Bool) {
+        soundsMuted = on
+        UserDefaults.standard.set(on, forKey: "muted")
+        muteItem?.state = on ? .on : .off
+        if on { sound.stopHelicopter() }
+    }
+
+    @objc func openSettings() { settings.owner = self; settings.show() }
+
+    /// Everything the settings window's Apply button changes, reusing the menu's own handlers.
+    func applySettings(styleTag: Int, skin skinTag: Int, size sizeTag: Int, watch: Bool, bubbles: Bool, login: Bool) {
+        if let i = modeItems.first(where: { $0.tag == styleTag }) { setMode(i) }
+        if skinTag >= 0, skinTag < skinItems.count { setSkin(skinItems[skinTag]) }
+        if sizeTag < sizeItems.count { setSize(sizeItems[sizeTag]) }
+        func item(_ sel: Selector) -> NSMenuItem? { statusItem.menu?.items.first { $0.action == sel } }
+        if watch != autoWhip, let i = item(#selector(toggleAuto(_:))) { toggleAuto(i) }
+        if bubbles != fx.talk, let i = item(#selector(toggleTalk(_:))) { toggleTalk(i) }
+        LoginItem.set(login)
+        showWhip = true
+        if let i = item(#selector(toggleShow(_:))) { i.state = .on }
+    }
+
     @objc func setSkin(_ s: NSMenuItem) {
         view.skin = Skin(rawValue: s.tag) ?? .leather
         defaults.set(s.tag, forKey: "skin")
@@ -2257,6 +2295,142 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let id = EventHotKeyID(signature: OSType(0x5748_4950), id: 1)
         RegisterEventHotKey(UInt32(kVK_ANSI_W), UInt32(controlKey | optionKey), id, GetApplicationEventTarget(), 0, &hotKeyRef)
     }
+}
+
+// MARK: - Welcome / settings window ("Apply" and you're done)
+
+final class SettingsWindow: NSObject, NSWindowDelegate {
+    var window: NSWindow!
+    weak var owner: AppDelegate?
+    let style = NSPopUpButton(), skin = NSPopUpButton()
+    let size = NSSegmentedControl(labels: ["Small", "Medium", "Large"], trackingMode: .selectOne, target: nil, action: nil)
+    let watch = NSButton(checkboxWithTitle: "Watch Claude: pace, whip while it works, celebrate when done", target: nil, action: nil)
+    let bubbles = NSButton(checkboxWithTitle: "Speech bubbles", target: nil, action: nil)
+    let silent = NSButton(checkboxWithTitle: "Silent mode (no sounds)", target: nil, action: nil)
+    let login = NSButton(checkboxWithTitle: "Start ClaudeWhip when I log in", target: nil, action: nil)
+    let axLabel = NSTextField(labelWithString: "")
+    let axButton = NSButton(title: "Grant Access…", target: nil, action: nil)
+    static let styles: [(String, Int)] = [("Stick cowboy beside Claude", 1), ("Stick cowboy on your cursor", 3), ("Whip as your cursor", 0)]
+
+    func build() {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 450), styleMask: [.titled, .closable],
+                         backing: .buffered, defer: false)
+        w.title = "ClaudeWhip"
+        w.isReleasedWhenClosed = false
+        w.delegate = self
+
+        let title = NSTextField(labelWithString: "🤠 ClaudeWhip")
+        title.font = .systemFont(ofSize: 26, weight: .bold)
+        let sub = NSTextField(wrappingLabelWithString: "A cowboy who cracks the whip at Claude while you wait. Pick your setup and press Apply.")
+        sub.textColor = .secondaryLabelColor
+
+        style.addItems(withTitles: SettingsWindow.styles.map { $0.0 })
+        skin.addItems(withTitles: ["Leather", "Neon", "Gold", "Rainbow"])
+        func row(_ label: String, _ control: NSView) -> NSStackView {
+            let l = NSTextField(labelWithString: label); l.alignment = .right
+            l.widthAnchor.constraint(equalToConstant: 80).isActive = true
+            let r = NSStackView(views: [l, control]); r.spacing = 10; return r
+        }
+        axButton.target = self; axButton.action = #selector(grant)
+        let axRow = NSStackView(views: [axLabel, axButton]); axRow.spacing = 10
+
+        let apply = NSButton(title: "Apply", target: self, action: #selector(applyPressed))
+        apply.keyEquivalent = "\r"
+        apply.controlSize = .large
+        apply.bezelColor = .controlAccentColor
+
+        let stack = NSStackView(views: [title, sub, row("Style", style), row("Whip skin", skin), row("Size", size),
+                                        watch, bubbles, silent, login, axRow, apply])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.edgeInsets = NSEdgeInsets(top: 22, left: 26, bottom: 22, right: 26)
+        stack.setCustomSpacing(22, after: axRow)
+        sub.widthAnchor.constraint(equalToConstant: 400).isActive = true
+        w.contentView = stack
+        window = w
+    }
+
+    func show() {
+        if window == nil { build() }
+        guard let o = owner else { return }
+        let d = UserDefaults.standard
+        let mode = o.styleMode
+        style.selectItem(at: SettingsWindow.styles.firstIndex { $0.1 == mode } ?? 0)
+        skin.selectItem(at: d.integer(forKey: "skin"))
+        size.selectedSegment = min(2, d.integer(forKey: "size"))
+        watch.state = o.autoWhip ? .on : .off
+        bubbles.state = o.fx.talk ? .on : .off
+        silent.state = soundsMuted ? .on : .off
+        login.state = LoginItem.isEnabled ? .on : .off
+        refreshAX()
+        NSApp.activate(ignoringOtherApps: true)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func refreshAX() {
+        let ok = AXIsProcessTrusted()
+        axLabel.stringValue = ok ? "✅ Accessibility allowed" : "⚠️ Accessibility needed to watch Claude"
+        axButton.isHidden = ok
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) { refreshAX() }
+
+    @objc func grant() {
+        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(opts)
+        if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(u) }
+    }
+
+    @objc func applyPressed() {
+        owner?.applySettings(styleTag: SettingsWindow.styles[max(0, style.indexOfSelectedItem)].1,
+                             skin: skin.indexOfSelectedItem, size: max(0, size.selectedSegment),
+                             watch: watch.state == .on, bubbles: bubbles.state == .on, login: login.state == .on)
+        owner?.setMuted(silent.state == .on)
+        UserDefaults.standard.set(true, forKey: "onboarded")
+        window.orderOut(nil)
+    }
+}
+
+/// "Start at login": the system Login Items API when ClaudeWhip runs as an app, otherwise a LaunchAgent.
+enum LoginItem {
+    static var plistURL: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/io.github.navid39-swift.claudewhip.plist") }
+
+    static var isEnabled: Bool {
+        if #available(macOS 13.0, *), Bundle.main.bundleIdentifier != nil, SMAppService.mainApp.status == .enabled { return true }
+        return FileManager.default.fileExists(atPath: plistURL.path)
+    }
+
+    static func set(_ on: Bool) {
+        if #available(macOS 13.0, *), Bundle.main.bundleIdentifier != nil {
+            do {
+                if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+                try? FileManager.default.removeItem(at: plistURL)
+                return
+            } catch { /* fall back to a LaunchAgent below */ }
+        }
+        if on, let exe = Bundle.main.executablePath {
+            let plist: [String: Any] = ["Label": "io.github.navid39-swift.claudewhip", "ProgramArguments": [exe],
+                                        "RunAtLoad": true, "LimitLoadToSessionType": "Aqua"]
+            try? FileManager.default.createDirectory(at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            (plist as NSDictionary).write(to: plistURL, atomically: true)
+        } else {
+            try? FileManager.default.removeItem(at: plistURL)
+        }
+    }
+}
+
+/// Silent mode: when true ClaudeWhip makes no sound at all (saved between launches).
+var soundsMuted = UserDefaults.standard.bool(forKey: "muted")
+
+let showSettingsNote = Notification.Name("io.github.navid39-swift.claudewhip.showSettings")
+
+// Opening the app again while it's already running just brings up its settings window.
+if let id = Bundle.main.bundleIdentifier,
+   NSRunningApplication.runningApplications(withBundleIdentifier: id).contains(where: { $0 != NSRunningApplication.current }) {
+    DistributedNotificationCenter.default().postNotificationName(showSettingsNote, object: nil, userInfo: nil, deliverImmediately: true)
+    exit(0)
 }
 
 let app = NSApplication.shared
